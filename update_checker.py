@@ -71,12 +71,22 @@ def parse_version(v: str) -> tuple:
 # Update checker thread
 # ─────────────────────────────────────────────────────────────
 
+def _make_ssl_context():
+    """Create an SSL context that works in py2app bundles (no cert bundle)."""
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 class UpdateCheckerThread(QThread):
     """Check GitHub Releases API for a newer version. Non-blocking."""
 
-    update_available = pyqtSignal(str, str, str)  # (latest_version, release_url, changelog)
+    # (latest_version, release_url, changelog, dmg_download_url)
+    update_available = pyqtSignal(str, str, str, str)
     no_update = pyqtSignal()
-    check_failed = pyqtSignal(str)  # error message (for logging, not user display on auto-check)
+    check_failed = pyqtSignal(str)
 
     def __init__(self, current_version: str, parent=None):
         super().__init__(parent)
@@ -84,7 +94,6 @@ class UpdateCheckerThread(QThread):
 
     def run(self):
         try:
-            import ssl
             req = urllib.request.Request(
                 API_URL,
                 headers={
@@ -92,11 +101,7 @@ class UpdateCheckerThread(QThread):
                     "Accept": "application/vnd.github.v3+json",
                 },
             )
-            # py2app bundles don't include SSL certs on macOS.
-            # Use unverified context — safe because we only read public GitHub API.
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+            ctx = _make_ssl_context()
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT, context=ctx) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
 
@@ -108,13 +113,19 @@ class UpdateCheckerThread(QThread):
                 version_str = tag.lstrip("v")
                 release_url = data.get("html_url", "")
                 changelog = data.get("body", "") or ""
-                self.update_available.emit(version_str, release_url, changelog)
+                # Find the .dmg asset URL
+                dmg_url = ""
+                for asset in data.get("assets", []):
+                    name = asset.get("name", "")
+                    if name.endswith(".dmg"):
+                        dmg_url = asset.get("browser_download_url", "")
+                        break
+                self.update_available.emit(version_str, release_url, changelog, dmg_url)
             else:
                 self.no_update.emit()
 
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                # No releases published yet — treat as "no update available"
                 self.no_update.emit()
             else:
                 self.check_failed.emit(f"HTTP {e.code}: {e.reason}")
@@ -124,3 +135,53 @@ class UpdateCheckerThread(QThread):
             self.check_failed.emit(f"Parse error: {e}")
         except Exception as e:
             self.check_failed.emit(str(e))
+
+
+class UpdateDownloadThread(QThread):
+    """Download a DMG file from a URL. Emits progress and completion."""
+
+    progress = pyqtSignal(int, int)       # (bytes_downloaded, total_bytes)
+    download_finished = pyqtSignal(str)   # path to downloaded file
+    download_failed = pyqtSignal(str)     # error message
+
+    def __init__(self, url: str, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self._stop_requested = False
+
+    def request_stop(self):
+        self._stop_requested = True
+
+    def run(self):
+        import tempfile
+        try:
+            ctx = _make_ssl_context()
+            req = urllib.request.Request(self.url, headers={
+                "User-Agent": "myh-file-finder-updater",
+            })
+            with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+                # Download to a temp .dmg file
+                fd, tmp_path = tempfile.mkstemp(suffix=".dmg")
+                try:
+                    downloaded = 0
+                    with os.fdopen(fd, "wb") as f:
+                        while True:
+                            if self._stop_requested:
+                                os.unlink(tmp_path)
+                                return
+                            chunk = resp.read(256 * 1024)  # 256KB chunks
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            self.progress.emit(downloaded, total)
+                    self.download_finished.emit(tmp_path)
+                except Exception:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                    raise
+        except Exception as e:
+            self.download_failed.emit(str(e))
