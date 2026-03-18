@@ -587,6 +587,12 @@ class DuplicateScannerThread(QThread):
 
 SENSITIVE_FINDING_BATCH_SIZE = 200  # Emit findings in batches to avoid 10k+ main-thread slot invocations
 
+
+def _sensitive_scan_worker(filepath, profiles):
+    """Top-level wrapper for multiprocessing — must be picklable (not a method)."""
+    return sensitive_scan_file(filepath, profiles)
+
+
 class SensitiveScannerThread(QThread):
     """Scan directory for files containing sensitive data (HUID, SSN, TAX, EMAIL)."""
     finding_batch_ready = pyqtSignal(list)  # batch of finding dicts (avoids flooding main thread)
@@ -611,8 +617,6 @@ class SensitiveScannerThread(QThread):
             self.scan_error.emit("Sensitive scanner module not available.")
             self.scan_finished.emit(0)
             return
-
-        from concurrent.futures import ProcessPoolExecutor
 
         total_findings = 0
         files_scanned = 0
@@ -664,60 +668,39 @@ class SensitiveScannerThread(QThread):
             return
 
         # Phase 2: scan files in parallel across CPU cores
+        # Use multiprocessing.Pool.imap_unordered with chunksize for minimal IPC overhead.
+        # ProcessPoolExecutor submits one-at-a-time (high overhead per file).
+        # imap_unordered sends CHUNKS of files to each worker (50 files per IPC call).
+        from multiprocessing import Pool
+        from functools import partial
+
         num_workers = max(1, (os.cpu_count() or 4) - 1)  # leave 1 core for UI
         total_candidates = len(candidates)
+        CHUNK = 50  # files per IPC call to each worker
 
         self.scan_progress.emit(
             f"Scanning {total_candidates:,} files across {num_workers} cores…",
             total_candidates, 0,
         )
 
+        # _scan_worker must be a top-level function for pickling (defined below class)
+        _profiles = list(self.active_profiles)  # copy for safety
+        scan_one = partial(_sensitive_scan_worker, profiles=_profiles)
+
         try:
-            with ProcessPoolExecutor(max_workers=num_workers) as pool:
-                # Submit in a sliding window to control memory
-                MAX_PENDING = num_workers * 8
-                futures = {}
-                candidate_idx = 0
-
-                # Prime the pool
-                while candidate_idx < min(MAX_PENDING, total_candidates):
-                    fp = candidates[candidate_idx]
-                    futures[pool.submit(sensitive_scan_file, fp, self.active_profiles)] = fp
-                    candidate_idx += 1
-
-                while futures:
+            with Pool(processes=num_workers) as pool:
+                for results in pool.imap_unordered(scan_one, candidates, chunksize=CHUNK):
                     if self._stop_requested:
-                        for f in futures:
-                            f.cancel()
+                        pool.terminate()
                         break
-
-                    # Wait for any one future to complete (non-blocking check loop)
-                    done_futures = [f for f in futures if f.done()]
-                    if not done_futures:
-                        time.sleep(0.01)  # brief sleep to avoid busy-wait + releases GIL
-                        continue
-
-                    for future in done_futures:
-                        filepath = futures.pop(future)
-                        files_scanned += 1
-                        try:
-                            results = future.result()
-                        except Exception:
-                            results = []
-                        for r in results:
-                            total_findings += 1
-                            batch.append(r)
-                            if len(batch) >= SENSITIVE_FINDING_BATCH_SIZE:
-                                self.finding_batch_ready.emit(batch)
-                                batch = []
-
-                        # Refill the pool
-                        if candidate_idx < total_candidates:
-                            fp = candidates[candidate_idx]
-                            futures[pool.submit(sensitive_scan_file, fp, self.active_profiles)] = fp
-                            candidate_idx += 1
-
-                    # Progress
+                    files_scanned += 1
+                    for r in results:
+                        total_findings += 1
+                        batch.append(r)
+                        if len(batch) >= SENSITIVE_FINDING_BATCH_SIZE:
+                            self.finding_batch_ready.emit(batch)
+                            batch = []
+                    # Progress (throttled)
                     now = time.monotonic()
                     if now - last_progress_time >= 0.25:
                         self.scan_progress.emit(
@@ -725,7 +708,6 @@ class SensitiveScannerThread(QThread):
                             files_scanned, total_findings,
                         )
                         last_progress_time = now
-                        time.sleep(0)
 
             if batch:
                 self.finding_batch_ready.emit(batch)
