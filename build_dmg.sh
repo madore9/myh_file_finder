@@ -163,53 +163,62 @@ echo "  ✓ Temp DMG created"
 echo ""
 echo "▶ [6/6] Styling DMG window..."
 
+# Eject any stale mounts of the same volume name
+hdiutil detach "/Volumes/$DMG_VOLUME_NAME" 2>/dev/null || true
+for i in $(seq 1 20); do
+    hdiutil detach "/Volumes/${DMG_VOLUME_NAME} ${i}" 2>/dev/null || true
+done
+sleep 1
+
 # Mount the temp DMG
 MOUNT_DIR=$(hdiutil attach -readwrite -noverify "$DMG_TEMP" | grep "/Volumes/" | sed 's/.*\/Volumes/\/Volumes/')
 echo "  Mounted at: $MOUNT_DIR"
 
+# Extract the actual volume name Finder sees (may include a number suffix)
+ACTUAL_VOL_NAME=$(basename "$MOUNT_DIR")
+echo "  Volume name: $ACTUAL_VOL_NAME"
+
 sleep 2
 
-# Use AppleScript to configure the Finder window (drag-to-Applications style)
-# Use full POSIX path for background so it persists on all macOS versions
-BG_POSIX="$MOUNT_DIR/.background/background.png"
+# Hide dotfiles BEFORE styling so they don't appear
+chflags hidden "$MOUNT_DIR/.background" 2>/dev/null || true
+chflags hidden "$MOUNT_DIR/.fseventsd" 2>/dev/null || true
+chflags hidden "$MOUNT_DIR/.Trashes" 2>/dev/null || true
+
+# Use AppleScript to configure the Finder window
+# IMPORTANT: Use the ACTUAL volume name (may have suffix like "my.File Tool 2")
 osascript <<APPLESCRIPT
 tell application "Finder"
-    tell disk "$DMG_VOLUME_NAME"
+    tell disk "$ACTUAL_VOL_NAME"
         open
+        delay 2
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
-        set bounds of container window to {100, 100, 760, 540}
+        set bounds of container window to {200, 200, 860, 640}
 
         set theViewOptions to icon view options of container window
         set arrangement of theViewOptions to not arranged
         set icon size of theViewOptions to 100
+        set text size of theViewOptions to 13
 
-        -- Set background using full path (more reliable than .background: on newer macOS)
-        try
-            set background picture of theViewOptions to POSIX file "$BG_POSIX"
-        end try
+        -- Set background using HFS colon-path (reliable on all macOS versions)
+        set background picture of theViewOptions to file ".background:background.png"
 
-        -- Position: app on left, Applications on right (aligned with background boxes)
-        set position of item "${APP_NAME}.app" to {190, 260}
-        set position of item "Applications" to {470, 260}
+        -- Position: app on left, Applications on right (centered in 660x440 window)
+        set position of item "${APP_NAME}.app" to {165, 220}
+        set position of item "Applications" to {495, 220}
 
         update without registering applications
+        delay 2
     end tell
 end tell
 APPLESCRIPT
 
-# Keep window open briefly so Finder commits .DS_Store, then close
+# Keep window open so Finder commits .DS_Store
+sleep 4
+osascript -e "tell application \"Finder\" to close (every window whose name is \"$ACTUAL_VOL_NAME\")" 2>/dev/null || true
 sleep 2
-osascript -e "tell application \"Finder\" to close (every window whose name is \"$DMG_VOLUME_NAME\")" 2>/dev/null || true
-
-# Hide dotfiles so they don't appear in the DMG window
-SetFile -a V "$MOUNT_DIR/.background" 2>/dev/null || true
-SetFile -a V "$MOUNT_DIR/.fseventsd" 2>/dev/null || true
-
-# Let Finder finish writing .DS_Store
-sync
-sleep 3
 
 # Unmount
 hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1
@@ -223,6 +232,10 @@ hdiutil convert "$DMG_TEMP" \
     >/dev/null 2>&1
 
 rm -f "$DMG_TEMP"
+
+# Also create a version-less copy for stable download links
+DMG_LATEST="${DMG_NAME}-latest.dmg"
+cp "$DMG_FINAL" "$DMG_LATEST"
 
 # ── Done ─────────────────────────────────────────────────
 echo ""

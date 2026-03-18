@@ -1069,11 +1069,6 @@ class MyhFileFinder(QMainWindow):
 
         # ── Menu bar ──────────────────────────────────────
         menubar = self.menuBar()
-        file_menu = menubar.addMenu("&File")
-        build_dmg_action = QAction("Build DMG…", self)
-        build_dmg_action.triggered.connect(self._on_build_dmg)
-        file_menu.addAction(build_dmg_action)
-
         help_menu = menubar.addMenu("&Help")
         check_updates_action = QAction("Check for Updates…", self)
         check_updates_action.triggered.connect(self._manual_check_for_updates)
@@ -1084,12 +1079,13 @@ class MyhFileFinder(QMainWindow):
         help_menu.addAction(report_bug_action)
 
         help_menu.addSeparator()
-        about_action = QAction(f"About my.File Tool v{self._app_version}", self)
+        about_action = QAction(f"About my.h File Finder v{self._app_version}", self)
         about_action.triggered.connect(lambda: QMessageBox.about(
-            self, "About my.File Tool",
-            f"my.File Tool v{self._app_version}\n\n"
+            self, "About my.h File Finder",
+            f"my.h File Finder v{self._app_version}\n\n"
             "Scan for sensitive data, duplicates, large files, or search file content.\n\n"
-            "Built for macOS."
+            "Built for macOS.\n"
+            "https://github.com/madore9/myh_file_finder"
         ))
         help_menu.addAction(about_action)
 
@@ -1109,19 +1105,23 @@ class MyhFileFinder(QMainWindow):
         self._update_banner_label.setStyleSheet("color: #664D03; font-size: 13px;")
         banner_layout.addWidget(self._update_banner_label)
         banner_layout.addStretch()
-        update_download_btn = QPushButton("View Release")
-        update_download_btn.setStyleSheet("""
+        install_btn = QPushButton("Install Update")
+        install_btn.setStyleSheet("""
             QPushButton {
-                background-color: #007AFF; color: white;
+                background-color: #34C759; color: white;
                 border: none; border-radius: 4px;
-                padding: 4px 12px; font-size: 12px;
+                padding: 4px 14px; font-size: 12px; font-weight: bold;
             }
-            QPushButton:hover { background-color: #005ECB; }
+            QPushButton:hover { background-color: #2DA44E; }
         """)
-        update_download_btn.clicked.connect(self._open_update_page)
-        banner_layout.addWidget(update_download_btn)
+        install_btn.clicked.connect(self._start_update_download)
+        banner_layout.addWidget(install_btn)
+        view_btn = QPushButton("View Release")
+        view_btn.setStyleSheet("font-size: 12px; color: #664D03; border: none; padding: 4px 8px;")
+        view_btn.clicked.connect(self._open_update_page)
+        banner_layout.addWidget(view_btn)
         dismiss_btn = QPushButton("Dismiss")
-        dismiss_btn.setStyleSheet("font-size: 12px; color: #664D03; border: none;")
+        dismiss_btn.setStyleSheet("font-size: 12px; color: #664D03; border: none; padding: 4px 8px;")
         dismiss_btn.clicked.connect(lambda: self._update_banner.setVisible(False))
         banner_layout.addWidget(dismiss_btn)
         layout.addWidget(self._update_banner)
@@ -2756,15 +2756,29 @@ class MyhFileFinder(QMainWindow):
         self._update_thread.check_failed.connect(self._on_update_check_failed)
         self._update_thread.start()
 
-    def _on_update_available(self, version: str, url: str, changelog: str):
+    def _on_update_available(self, version: str, url: str, changelog: str, dmg_url: str):
         self._update_release_url = url
-        self._update_banner_label.setText(f"A new version is available: v{version}")
+        self._update_dmg_url = dmg_url
+        self._update_version = version
+        self._update_banner_label.setText(f"  Update available: v{version}")
         self._update_banner.setVisible(True)
         if self._update_check_manual:
-            QMessageBox.information(
-                self, "Update Available",
-                f"Version {version} is available.\n\n{changelog[:500]}"
-            )
+            dlg = QMessageBox(self)
+            dlg.setWindowTitle("Update Available")
+            dlg.setIcon(QMessageBox.Information)
+            dlg.setText(f"Version {version} is available.\n\n{changelog[:500]}")
+            if dmg_url:
+                install_btn = dlg.addButton("Install Update", QMessageBox.AcceptRole)
+            else:
+                install_btn = None
+            dlg.addButton("View Release", QMessageBox.ActionRole)
+            dlg.addButton(QMessageBox.Close)
+            dlg.exec_()
+            clicked = dlg.clickedButton()
+            if clicked == install_btn:
+                self._start_update_download()
+            elif clicked and clicked.text() == "View Release":
+                self._open_update_page()
 
     def _on_no_update(self):
         if self._update_check_manual:
@@ -2785,6 +2799,62 @@ class MyhFileFinder(QMainWindow):
         if self._update_release_url:
             webbrowser.open(self._update_release_url)
 
+    def _start_update_download(self):
+        """Download the DMG and open it for installation."""
+        from update_checker import UpdateDownloadThread
+        dmg_url = getattr(self, '_update_dmg_url', '')
+        if not dmg_url:
+            self._open_update_page()
+            return
+        self._download_thread = UpdateDownloadThread(dmg_url, parent=self)
+        self._download_thread.progress.connect(self._on_download_progress)
+        self._download_thread.download_finished.connect(self._on_download_finished)
+        self._download_thread.download_failed.connect(self._on_download_failed)
+        self._download_thread.start()
+        # Show progress in the banner
+        self._update_banner_label.setText("  Downloading update…")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)  # indeterminate until we get Content-Length
+
+    def _on_download_progress(self, downloaded: int, total: int):
+        if total > 0:
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(downloaded)
+            mb_down = downloaded / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            self._update_banner_label.setText(f"  Downloading update… {mb_down:.1f} / {mb_total:.1f} MB")
+        else:
+            mb_down = downloaded / (1024 * 1024)
+            self._update_banner_label.setText(f"  Downloading update… {mb_down:.1f} MB")
+
+    def _on_download_finished(self, dmg_path: str):
+        import subprocess
+        self.progress_bar.setVisible(False)
+        self._update_banner_label.setText("  Update downloaded — installing…")
+        # Open the DMG so the user can drag to Applications
+        try:
+            subprocess.Popen(["open", dmg_path])
+            QMessageBox.information(
+                self, "Update Ready",
+                f"The update (v{self._update_version}) has been downloaded and opened.\n\n"
+                "To install:\n"
+                "1. Drag 'my.File Tool' to Applications (replacing the old version)\n"
+                "2. Close this app\n"
+                "3. Relaunch from Applications"
+            )
+            self._update_banner_label.setText(f"  v{self._update_version} ready — drag to Applications to install")
+        except Exception as e:
+            QMessageBox.warning(self, "Install Error", f"Could not open DMG:\n{e}")
+
+    def _on_download_failed(self, error: str):
+        self.progress_bar.setVisible(False)
+        self._update_banner_label.setText(f"  Download failed — click View Release to download manually")
+        if self._update_check_manual:
+            QMessageBox.warning(
+                self, "Download Failed",
+                f"Could not download the update.\n\n{error}\n\nYou can download it manually from the release page."
+            )
+
     # ── Bug reporting ─────────────────────────────────────
 
     def _report_bug(self, error_text=None):
@@ -2802,7 +2872,7 @@ class MyhFileFinder(QMainWindow):
         current_mode = mode_names.get(self._scan_mode, self._scan_mode)
 
         body_lines = [
-            "## Bug Report — my.File Tool",
+            "## Bug Report — my.h File Finder",
             "",
             f"**App Version:** {self._app_version}",
             f"**macOS:** {mac_ver}",

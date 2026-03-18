@@ -91,8 +91,10 @@ echo "  ✓ Tag ${TAG} pushed"
 # ── GitHub Release ──
 echo ""
 echo "▶ Creating GitHub release..."
+DMG_LATEST="MyFileTool-latest.dmg"
 gh release create "$TAG" \
     "$DMG_NAME" \
+    "$DMG_LATEST" \
     --title "my.File Tool ${VERSION}" \
     --notes "$RELEASE_NOTES"
 

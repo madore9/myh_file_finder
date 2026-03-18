@@ -67,7 +67,7 @@ draw.line(
 )
 
 # Title text
-title = "my.File Tool"
+title = "my.h File Finder"
 title_x = icon_x + icon_size + 20
 title_y = icon_y + 5
 draw.text((title_x, title_y), title, fill=(255, 255, 255, 255), font=font_title)
