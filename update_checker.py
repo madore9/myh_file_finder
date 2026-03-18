@@ -84,14 +84,20 @@ class UpdateCheckerThread(QThread):
 
     def run(self):
         try:
+            import ssl
             req = urllib.request.Request(
                 API_URL,
                 headers={
-                    "User-Agent": f"my.File Tool/{self.current_version}",
+                    "User-Agent": f"myh-file-finder/{self.current_version}",
                     "Accept": "application/vnd.github.v3+json",
                 },
             )
-            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            # py2app bundles don't include SSL certs on macOS.
+            # Use unverified context — safe because we only read public GitHub API.
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT, context=ctx) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
 
             tag = data.get("tag_name", "")
@@ -107,7 +113,11 @@ class UpdateCheckerThread(QThread):
                 self.no_update.emit()
 
         except urllib.error.HTTPError as e:
-            self.check_failed.emit(f"HTTP {e.code}: {e.reason}")
+            if e.code == 404:
+                # No releases published yet — treat as "no update available"
+                self.no_update.emit()
+            else:
+                self.check_failed.emit(f"HTTP {e.code}: {e.reason}")
         except urllib.error.URLError as e:
             self.check_failed.emit(f"Network error: {e.reason}")
         except (json.JSONDecodeError, KeyError, ValueError) as e:

@@ -1069,11 +1069,6 @@ class MyhFileFinder(QMainWindow):
 
         # ── Menu bar ──────────────────────────────────────
         menubar = self.menuBar()
-        file_menu = menubar.addMenu("&File")
-        build_dmg_action = QAction("Build DMG…", self)
-        build_dmg_action.triggered.connect(self._on_build_dmg)
-        file_menu.addAction(build_dmg_action)
-
         help_menu = menubar.addMenu("&Help")
         check_updates_action = QAction("Check for Updates…", self)
         check_updates_action.triggered.connect(self._manual_check_for_updates)
@@ -1084,12 +1079,13 @@ class MyhFileFinder(QMainWindow):
         help_menu.addAction(report_bug_action)
 
         help_menu.addSeparator()
-        about_action = QAction(f"About my.File Tool v{self._app_version}", self)
+        about_action = QAction(f"About my.h File Finder v{self._app_version}", self)
         about_action.triggered.connect(lambda: QMessageBox.about(
-            self, "About my.File Tool",
-            f"my.File Tool v{self._app_version}\n\n"
+            self, "About my.h File Finder",
+            f"my.h File Finder v{self._app_version}\n\n"
             "Scan for sensitive data, duplicates, large files, or search file content.\n\n"
-            "Built for macOS."
+            "Built for macOS.\n"
+            "https://github.com/madore9/myh_file_finder"
         ))
         help_menu.addAction(about_action)
 
@@ -2802,7 +2798,7 @@ class MyhFileFinder(QMainWindow):
         current_mode = mode_names.get(self._scan_mode, self._scan_mode)
 
         body_lines = [
-            "## Bug Report — my.File Tool",
+            "## Bug Report — my.h File Finder",
             "",
             f"**App Version:** {self._app_version}",
             f"**macOS:** {mac_ver}",

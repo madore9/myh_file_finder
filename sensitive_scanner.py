@@ -233,12 +233,15 @@ def scan_file(filepath, active_profiles):
     """Scan a single file. Returns list of result dicts (one per matching profile)."""
     results = []
     try:
+        file_stat = os.stat(filepath)
+        if file_stat.st_size > MAX_FILE_SIZE:
+            return results
+
         # Single read with errors='replace' — avoids double-read with encoding fallback
         content = Path(filepath).read_text(encoding='utf-8', errors='replace')
         if not content:
             return results
 
-        file_stat = os.stat(filepath)
         fname = os.path.basename(filepath)
         ext = os.path.splitext(filepath)[1].lower()
         fname_lower = fname.lower()
