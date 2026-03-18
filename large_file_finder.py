@@ -2831,20 +2831,105 @@ class MyhFileFinder(QMainWindow):
         import subprocess
         self.progress_bar.setVisible(False)
         self._update_banner_label.setText("  Update downloaded — installing…")
-        # Open the DMG so the user can drag to Applications
-        try:
+
+        # Determine where the running .app lives
+        app_bundle = self._get_running_app_path()
+        if not app_bundle:
+            # Fallback: open the DMG for manual drag-install
             subprocess.Popen(["open", dmg_path])
             QMessageBox.information(
                 self, "Update Ready",
-                f"The update (v{self._update_version}) has been downloaded and opened.\n\n"
-                "To install:\n"
-                "1. Drag 'my.File Tool' to Applications (replacing the old version)\n"
-                "2. Close this app\n"
-                "3. Relaunch from Applications"
+                f"The update (v{self._update_version}) has been downloaded.\n\n"
+                "Drag 'my.File Tool' to Applications to install."
             )
-            self._update_banner_label.setText(f"  v{self._update_version} ready — drag to Applications to install")
+            return
+
+        # Confirm with user
+        reply = QMessageBox.question(
+            self, "Install Update",
+            f"Ready to update to v{self._update_version}.\n\n"
+            "The app will close briefly and relaunch on the new version.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            self._update_banner_label.setText(
+                f"  v{self._update_version} downloaded — click Install Update when ready"
+            )
+            return
+
+        self._perform_in_place_update(dmg_path, app_bundle)
+
+    def _get_running_app_path(self):
+        """Return the path to the running .app bundle, or None if running from source."""
+        # In a py2app bundle, sys.executable is inside Contents/MacOS/
+        exe = os.path.abspath(sys.executable)
+        # Walk up to find the .app bundle
+        path = exe
+        for _ in range(5):
+            if path.endswith(".app"):
+                return path
+            path = os.path.dirname(path)
+        return None
+
+    def _perform_in_place_update(self, dmg_path: str, app_bundle: str):
+        """Mount DMG, write updater script, quit, let script swap the .app and relaunch."""
+        import subprocess
+        import tempfile
+
+        app_name = os.path.basename(app_bundle)  # "my.File Tool.app"
+        app_dir = os.path.dirname(app_bundle)     # "/Applications"
+        pid = os.getpid()
+
+        # Mount the DMG silently (no Finder window)
+        try:
+            result = subprocess.run(
+                ["hdiutil", "attach", "-nobrowse", "-quiet", "-mountpoint", "/tmp/myh_update_mount", dmg_path],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr)
+            mount_point = "/tmp/myh_update_mount"
         except Exception as e:
-            QMessageBox.warning(self, "Install Error", f"Could not open DMG:\n{e}")
+            QMessageBox.warning(self, "Update Failed", f"Could not mount update DMG:\n{e}")
+            return
+
+        new_app = os.path.join(mount_point, app_name)
+        if not os.path.isdir(new_app):
+            QMessageBox.warning(self, "Update Failed", f"App not found in DMG at:\n{new_app}")
+            subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], capture_output=True)
+            return
+
+        # Write the updater script
+        updater_script = tempfile.mktemp(suffix=".sh", prefix="myh_updater_")
+        script_content = f"""#!/bin/bash
+# my.h File Finder in-place updater
+# Wait for the old process to exit
+while kill -0 {pid} 2>/dev/null; do sleep 0.3; done
+
+# Replace the .app bundle
+rm -rf "{app_bundle}"
+cp -R "{new_app}" "{app_dir}/"
+
+# Unmount and clean up
+hdiutil detach "{mount_point}" -quiet 2>/dev/null
+rm -f "{dmg_path}"
+
+# Relaunch
+open "{app_bundle}"
+
+# Self-destruct
+rm -f "$0"
+"""
+        with open(updater_script, "w") as f:
+            f.write(script_content)
+        os.chmod(updater_script, 0o755)
+
+        # Launch the updater and quit
+        subprocess.Popen(["/bin/bash", updater_script])
+        self._update_banner_label.setText("  Updating… app will relaunch shortly")
+        QApplication.processEvents()
+        QApplication.instance().quit()
 
     def _on_download_failed(self, error: str):
         self.progress_bar.setVisible(False)
