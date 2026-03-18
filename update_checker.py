@@ -72,12 +72,19 @@ def parse_version(v: str) -> tuple:
 # ─────────────────────────────────────────────────────────────
 
 def _make_ssl_context():
-    """Create an SSL context that works in py2app bundles (no cert bundle)."""
+    """Create a verified SSL context using certifi's CA bundle.
+
+    py2app bundles don't include macOS system certificates, so the default
+    ssl.create_default_context() fails. We bundle certifi (Mozilla's CA certs)
+    to get proper TLS verification without disabling security.
+    """
     import ssl
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        # certifi not available — fall back to default (may fail in py2app)
+        return ssl.create_default_context()
 
 
 class UpdateCheckerThread(QThread):

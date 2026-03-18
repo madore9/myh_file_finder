@@ -1059,6 +1059,10 @@ class MyhFileFinder(QMainWindow):
 
         # Auto-check for updates silently after a short delay (let UI render first)
         QTimer.singleShot(2000, self._auto_check_for_updates)
+        # Re-check every 12 hours in case the app stays open
+        self._update_interval_timer = QTimer(self)
+        self._update_interval_timer.timeout.connect(self._auto_check_for_updates)
+        self._update_interval_timer.start(12 * 60 * 60 * 1000)  # 12 hours in ms
 
     def _build_ui(self):
         central = QWidget()

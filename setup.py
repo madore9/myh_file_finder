@@ -35,7 +35,7 @@ OPTIONS = {
         'LSUIElement': False,  # Show in Dock
         'NSHumanReadableCopyright': 'my.File Tool © 2026',
     },
-    'packages': ['PyQt5'],
+    'packages': ['PyQt5', 'certifi'],
 }
 
 setup(
