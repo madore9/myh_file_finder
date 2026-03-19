@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>my.h File Finder — UI Prototype (Harvard Theme)</title>
+<style>
+* { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif; margin: 0; box-sizing: border-box; }
+body { overflow: hidden; }
+input[type="checkbox"] { accent-color: #A51C30; }
+select, input[type="text"] { font-family: inherit; }
+button { font-family: inherit; cursor: pointer; }
+::-webkit-scrollbar { width: 7px; }
+::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.25); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.4); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// Harvard brand colors
+const H = {
+  crimson: '#A51C30', crimsonDark: '#8C1515', crimsonLight: '#C63D3D',
+  black: '#1E1E1E', white: '#FFFFFF',
+  mortar: '#8C8179', parchment: '#F3F0EB', shade: '#BAB6B0',
+  ivy: '#52854C', gold: '#C4953A', bluebonnet: '#4E84C4',
+};
+
+const MODES = [
+  { id:'sensitive', label:'Sensitive Data', icon:'🛡️', count:16 },
+  { id:'large', label:'Large Files', icon:'📦', count:1247 },
+  { id:'duplicates', label:'Duplicates', icon:'📋', count:89 },
+  { id:'search', label:'String Search', icon:'🔍', count:342 },
+];
+
+const SUMMARIES = {
+  large: { stats: [{l:'Files Found',v:'1,247'},{l:'Total Size',v:'84.3 GB'},{l:'Largest',v:'12.1 GB'},{l:'Elapsed',v:'3m 42s'}] },
+  duplicates: { stats: [{l:'Groups',v:'89'},{l:'Wasted Space',v:'23.1 GB'},{l:'Files',v:'247'},{l:'Elapsed',v:'5m 18s'}] },
+  sensitive: { stats: [{l:'Scanned',v:'204,177'},{l:'Flagged',v:'16 files'},{l:'Patterns',v:'154'},{l:'Elapsed',v:'2m 36s'}] },
+  search: { stats: [{l:'Matches',v:'342'},{l:'Files',v:'91'},{l:'Elapsed',v:'1m 05s'}] },
+};
+
+const LARGE_DATA = [
+  {name:'Xcode_15.2.xip',loc:'~/Downloads',size:'12.1 GB',mod:'Nov 3, 2025',opened:'Never',conf:'Safe to Delete'},
+  {name:'Windows11.vmdk',loc:'~/Virtual Machines',size:'8.4 GB',mod:'Aug 14, 2024',opened:'Aug 14, 2024',conf:'Caution'},
+  {name:'project_backup_2024.zip',loc:'~/Documents/Backups',size:'4.2 GB',mod:'Mar 22, 2024',opened:'Never',conf:'Safe to Delete'},
+  {name:'Adobe_Premiere_Cache',loc:'~/Library/Caches/Adobe',size:'3.8 GB',mod:'Dec 1, 2025',opened:'Dec 1, 2025',conf:'Safe to Delete'},
+  {name:'node_modules.tar.gz',loc:'~/Projects/archive',size:'2.9 GB',mod:'Jun 15, 2024',opened:'Never',conf:'Safe to Delete'},
+  {name:'TimeMachine_Snapshot.band',loc:'~/Backups',size:'2.1 GB',mod:'Sep 10, 2025',opened:'Sep 10, 2025',conf:'Caution'},
+  {name:'docker_images_export.tar',loc:'~/Docker',size:'1.8 GB',mod:'Jan 28, 2025',opened:'Feb 2, 2025',conf:'Keep'},
+  {name:'recording_2025-02.mov',loc:'~/Movies',size:'1.6 GB',mod:'Feb 14, 2025',opened:'Feb 14, 2025',conf:'Caution'},
+  {name:'FinalCutPro_Library.fcpbundle',loc:'~/Movies',size:'1.4 GB',mod:'Mar 1, 2026',opened:'Mar 15, 2026',conf:'Keep'},
+  {name:'old_vm_snapshot.qcow2',loc:'~/Parallels',size:'1.2 GB',mod:'May 3, 2023',opened:'Never',conf:'Safe to Delete'},
+];
+
+const SENSITIVE_DATA = [
+  {name:'student_roster.xlsx',loc:'~/Documents/HR',huid:true,ssn:true,email:true,conf:'HIGH',hits:47,size:'245 KB',mod:'Jan 15, 2026',sample:'123-45-****; jsmith@harvard.edu'},
+  {name:'tax_filing_2024.pdf',loc:'~/Documents/Finance',huid:false,ssn:true,email:false,conf:'HIGH',hits:12,size:'1.2 MB',mod:'Feb 28, 2026',sample:'987-65-****; 456-78-****'},
+  {name:'contacts_export.csv',loc:'~/Downloads',huid:true,ssn:false,email:true,conf:'MEDIUM',hits:234,size:'89 KB',mod:'Mar 10, 2026',sample:'12****78; alee@g.harvard.edu'},
+  {name:'medical_records.docx',loc:'~/Documents/Health',huid:false,ssn:true,email:false,conf:'HIGH',hits:2,size:'340 KB',mod:'Mar 5, 2026',sample:'234-56-****'},
+  {name:'old_database.sql',loc:'~/Projects/legacy',huid:true,ssn:true,email:true,conf:'HIGH',hits:1203,size:'4.5 MB',mod:'Dec 12, 2025',sample:'34****12; 111-22-****; ...'},
+  {name:'email_backup.mbox',loc:'~/Mail',huid:false,ssn:false,email:true,conf:'LOW',hits:89,size:'12 MB',mod:'Mar 18, 2026',sample:'mchen@harvard.edu; ...'},
+];
+
+const DUP_DATA = [
+  {reason:'Same content (SHA-256)',size:'4.2 GB',copies:3,loc:'~/Documents, ~/Downloads, ~/Backups'},
+  {reason:'Same content (SHA-256)',size:'1.8 GB',copies:2,loc:'~/Projects, ~/archive'},
+  {reason:'Same content (SHA-256)',size:'890 MB',copies:4,loc:'~/Downloads, ~/Desktop, ~/Documents'},
+  {reason:'Same content (SHA-256)',size:'456 MB',copies:2,loc:'~/Movies, ~/Backups'},
+  {reason:'Same size + name',size:'234 MB',copies:3,loc:'~/Photos, ~/iCloud, ~/Desktop'},
+];
+
+const SEARCH_DATA = [
+  {file:'config.py',path:'~/Projects/webapp/src',line:42,snip:'API_KEY = "sk-proj-abc123..."'},
+  {file:'.env.production',path:'~/Projects/webapp',line:3,snip:'DATABASE_URL=postgres://admin:pass@...'},
+  {file:'deploy.sh',path:'~/Projects/scripts',line:18,snip:'export AWS_SECRET_KEY="AKIA..."'},
+  {file:'settings.json',path:'~/Projects/config',line:91,snip:'"api_token": "ghp_xxxx..."'},
+  {file:'notes.md',path:'~/Documents/Work',line:7,snip:'Password for staging: hunter2'},
+];
+
+function pill(label) {
+  const styles = {
+    'Safe to Delete':`background:${H.ivy}22;color:${H.ivy};border:1px solid ${H.ivy}33`,
+    'Caution':`background:${H.gold}22;color:${H.gold};border:1px solid ${H.gold}33`,
+    'Keep':`background:${H.crimson}22;color:${H.crimson};border:1px solid ${H.crimson}33`,
+    'HIGH':`background:${H.crimson}22;color:${H.crimsonLight};border:1px solid ${H.crimson}33`,
+    'MEDIUM':`background:${H.gold}22;color:${H.gold};border:1px solid ${H.gold}33`,
+    'LOW':`background:${H.ivy}22;color:${H.ivy};border:1px solid ${H.ivy}33`,
+  }[label]||`background:#88888822;color:#888;border:1px solid #88888833`;
+  return `<span style="${styles};padding:3px 12px;border-radius:99px;font-size:11px;font-weight:600;display:inline-block">${label}</span>`;
+}
+
+function chk(v){return v?`<span style="color:${H.crimson};font-weight:600">✓</span>`:`<span style="color:#555">—</span>`;}
+
+let activeMode = 'sensitive';
+let dark = false;
+
+function render() {
+  const d = dark;
+  const bg = d ? '#141414' : H.parchment;
+  const cardBg = d ? '#1c1c1e' : '#ffffff';
+  const sbBg = d ? '#0d0d0d' : '#f5f2ed';
+  const border = d ? '#2a2a2a' : '#ddd8d0';
+  const text = d ? '#e8e5e0' : '#1a1a1a';
+  const sub = d ? '#8c8179' : '#6b6560';
+  const rowAlt = d ? '#1a1a1c' : '#f9f7f4';
+  const rowHover = d ? '#252528' : '#f0ede8';
+  const headerBg = d ? '#1a1a1c' : '#f5f2ed';
+  const inputBg = d ? '#222' : '#fff';
+  const inputBorder = d ? '#333' : '#ccc8c0';
+  const accentBg = d ? `${H.crimson}15` : `${H.crimson}08`;
+  const accentBorder = d ? `${H.crimson}25` : `${H.crimson}15`;
+
+  // Build mode-specific settings row
+  let settingsRow2 = '';
+  if (activeMode === 'large') {
+    settingsRow2 = `
+      <div style="padding:0 20px 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label style="font-size:11px;color:${sub};font-weight:600">Min Size:</label>
+        <select style="padding:4px 8px;font-size:12px;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text}">
+          <option>> 100 MB</option><option selected>> 500 MB</option><option>> 1 GB</option><option>> 5 GB</option><option>> 10 GB</option>
+        </select>
+        <div style="width:1px;height:14px;background:${border}"></div>
+        <label style="font-size:12px;color:${sub};display:flex;align-items:center;gap:4px"><input type="checkbox"> Include hidden files</label>
+        <label style="font-size:12px;color:${sub};display:flex;align-items:center;gap:4px"><input type="checkbox" checked> Skip system directories</label>
+      </div>`;
+  } else if (activeMode === 'sensitive') {
+    settingsRow2 = `
+      <div style="padding:0 20px 8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label style="font-size:11px;color:${sub};font-weight:600">Profiles:</label>
+        <label style="font-size:12px;color:${text};display:flex;align-items:center;gap:3px"><input type="checkbox" checked> HUID</label>
+        <label style="font-size:12px;color:${text};display:flex;align-items:center;gap:3px"><input type="checkbox" checked> SSN</label>
+        <label style="font-size:12px;color:${text};display:flex;align-items:center;gap:3px"><input type="checkbox" checked> EMAIL</label>
+        <div style="width:1px;height:14px;background:${border}"></div>
+        <label style="font-size:12px;color:${sub};display:flex;align-items:center;gap:4px"><input type="checkbox" checked> Skip app & system data</label>
+        <label style="font-size:12px;color:${sub};display:flex;align-items:center;gap:4px"><input type="checkbox"> Include hidden files</label>
+      </div>
+      <div style="padding:0 20px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label style="font-size:11px;color:${sub};font-weight:600">Exclude:</label>
+        <span style="font-size:11px;padding:3px 10px;border-radius:5px;background:${d?'#252528':'#ebe8e3'};color:${sub};display:flex;align-items:center;gap:4px">~/AI <button onclick="event.stopPropagation()" style="background:none;border:none;color:${sub};font-size:13px;padding:0 0 0 4px;cursor:pointer">×</button></span>
+        <span style="font-size:11px;padding:3px 10px;border-radius:5px;background:${d?'#252528':'#ebe8e3'};color:${sub};display:flex;align-items:center;gap:4px">/Library/Caches <button style="background:none;border:none;color:${sub};font-size:13px;padding:0 0 0 4px;cursor:pointer">×</button></span>
+        <button style="font-size:11px;color:${H.crimson};background:none;border:1px dashed ${H.crimson}44;border-radius:5px;padding:3px 10px;cursor:pointer">+ Add Folder...</button>
+      </div>`;
+  } else if (activeMode === 'duplicates') {
+    settingsRow2 = `
+      <div style="padding:0 20px 12px;display:flex;align-items:center;gap:12px">
+        <label style="font-size:12px;color:${text};display:flex;align-items:center;gap:4px"><input type="checkbox" checked> Verify content (SHA-256 hash)</label>
+        <div style="width:1px;height:14px;background:${border}"></div>
+        <label style="font-size:12px;color:${sub};display:flex;align-items:center;gap:4px"><input type="checkbox"> Include hidden files</label>
+        <label style="font-size:12px;color:${sub};display:flex;align-items:center;gap:4px"><input type="checkbox" checked> Skip system directories</label>
+      </div>`;
+  } else {
+    settingsRow2 = `
+      <div style="padding:0 20px 12px;display:flex;align-items:center;gap:10px">
+        <label style="font-size:11px;color:${sub};font-weight:600">Search:</label>
+        <input value="API_KEY" style="flex:1;max-width:280px;padding:5px 10px;font-size:13px;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text};outline:none">
+        <label style="font-size:12px;color:${sub};display:flex;align-items:center;gap:4px"><input type="checkbox"> Use regex</label>
+        <div style="width:1px;height:14px;background:${border}"></div>
+        <label style="font-size:12px;color:${sub};display:flex;align-items:center;gap:4px"><input type="checkbox"> Include hidden files</label>
+        <label style="font-size:12px;color:${sub};display:flex;align-items:center;gap:4px"><input type="checkbox" checked> Skip system directories</label>
+      </div>`;
+  }
+
+  // Build table
+  let tableHTML = '';
+  const thStyle = `padding:9px 12px;font-size:11px;font-weight:600;color:${sub};text-transform:uppercase;letter-spacing:0.5px;background:${headerBg};position:sticky;top:0;border-bottom:2px solid ${border}`;
+  const tdStyle = (i) => `padding:8px 12px;border-bottom:1px solid ${d?'#1e1e20':'#eae7e2'};${i%2?`background:${rowAlt}`:''}`;
+
+  if (activeMode === 'large') {
+    tableHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left">
+        <th style="${thStyle};width:32px"><input type="checkbox"></th>
+        <th style="${thStyle}">File Name</th>
+        <th style="${thStyle}">Location</th>
+        <th style="${thStyle};text-align:right">Size</th>
+        <th style="${thStyle}">Modified</th>
+        <th style="${thStyle}">Last Opened</th>
+        <th style="${thStyle}">Priority</th>
+      </tr></thead><tbody>${LARGE_DATA.map((r,i)=>`<tr style="cursor:pointer" onmouseover="this.style.background='${rowHover}'" onmouseout="this.style.background='${i%2?rowAlt:'transparent'}'">
+        <td style="${tdStyle(i)}"><input type="checkbox"></td>
+        <td style="${tdStyle(i)};font-weight:500">${r.name}</td>
+        <td style="${tdStyle(i)};color:${sub};font-size:12px">${r.loc}</td>
+        <td style="${tdStyle(i)};text-align:right;font-variant-numeric:tabular-nums;font-weight:500">${r.size}</td>
+        <td style="${tdStyle(i)};color:${sub};font-size:12px">${r.mod}</td>
+        <td style="${tdStyle(i)};color:${r.opened==='Never'?H.crimson:sub};font-size:12px">${r.opened}</td>
+        <td style="${tdStyle(i)}">${pill(r.conf)}</td>
+      </tr>`).join('')}</tbody></table>`;
+  } else if (activeMode === 'sensitive') {
+    tableHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left">
+        <th style="${thStyle};width:32px"><input type="checkbox"></th>
+        <th style="${thStyle}">Confidence</th>
+        <th style="${thStyle};text-align:center;width:50px">HUID</th>
+        <th style="${thStyle};text-align:center;width:50px">SSN</th>
+        <th style="${thStyle};text-align:center;width:55px">EMAIL</th>
+        <th style="${thStyle}">File Name</th>
+        <th style="${thStyle}">Location</th>
+        <th style="${thStyle};text-align:right">Hits</th>
+        <th style="${thStyle};text-align:right">Size</th>
+        <th style="${thStyle}">Modified</th>
+        <th style="${thStyle}">Sample (masked)</th>
+      </tr></thead><tbody>${SENSITIVE_DATA.map((r,i)=>`<tr style="cursor:pointer" onmouseover="this.style.background='${rowHover}'" onmouseout="this.style.background='${i%2?rowAlt:'transparent'}'">
+        <td style="${tdStyle(i)}"><input type="checkbox"></td>
+        <td style="${tdStyle(i)}">${pill(r.conf)}</td>
+        <td style="${tdStyle(i)};text-align:center">${chk(r.huid)}</td>
+        <td style="${tdStyle(i)};text-align:center">${chk(r.ssn)}</td>
+        <td style="${tdStyle(i)};text-align:center">${chk(r.email)}</td>
+        <td style="${tdStyle(i)};font-weight:500">${r.name}</td>
+        <td style="${tdStyle(i)};color:${sub};font-size:12px">${r.loc}</td>
+        <td style="${tdStyle(i)};text-align:right;font-variant-numeric:tabular-nums">${r.hits}</td>
+        <td style="${tdStyle(i)};text-align:right;color:${sub}">${r.size}</td>
+        <td style="${tdStyle(i)};color:${sub};font-size:12px">${r.mod}</td>
+        <td style="${tdStyle(i)};font-family:'SF Mono',SFMono-Regular,Menlo,monospace;font-size:11px;color:${d?'#aa8866':'#886644'};max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.sample}</td>
+      </tr>`).join('')}</tbody></table>`;
+  } else if (activeMode === 'duplicates') {
+    tableHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left">
+        <th style="${thStyle}">Reason</th>
+        <th style="${thStyle};text-align:right">Size</th>
+        <th style="${thStyle};text-align:right">Copies</th>
+        <th style="${thStyle}">Locations</th>
+      </tr></thead><tbody>${DUP_DATA.map((r,i)=>`<tr style="cursor:pointer" onmouseover="this.style.background='${rowHover}'" onmouseout="this.style.background='${i%2?rowAlt:'transparent'}'">
+        <td style="${tdStyle(i)}">${r.reason}</td>
+        <td style="${tdStyle(i)};text-align:right;font-variant-numeric:tabular-nums;font-weight:500">${r.size}</td>
+        <td style="${tdStyle(i)};text-align:right;font-variant-numeric:tabular-nums">${r.copies}</td>
+        <td style="${tdStyle(i)};color:${sub};font-size:12px">${r.loc}</td>
+      </tr>`).join('')}</tbody></table>`;
+  } else {
+    tableHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left">
+        <th style="${thStyle}">File</th>
+        <th style="${thStyle}">Path</th>
+        <th style="${thStyle};text-align:right;width:60px">Line</th>
+        <th style="${thStyle}">Snippet</th>
+      </tr></thead><tbody>${SEARCH_DATA.map((r,i)=>`<tr style="cursor:pointer" onmouseover="this.style.background='${rowHover}'" onmouseout="this.style.background='${i%2?rowAlt:'transparent'}'">
+        <td style="${tdStyle(i)};font-weight:500">${r.file}</td>
+        <td style="${tdStyle(i)};color:${sub};font-size:12px">${r.path}</td>
+        <td style="${tdStyle(i)};text-align:right;font-variant-numeric:tabular-nums;color:${sub}">${r.line}</td>
+        <td style="${tdStyle(i)};font-family:'SF Mono',SFMono-Regular,Menlo,monospace;font-size:11px;color:${H.gold}">${r.snip}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }
+
+  const summary = SUMMARIES[activeMode];
+  const modeLabel = MODES.find(m=>m.id===activeMode).label;
+
+  document.getElementById('app').innerHTML = `
+  <div style="display:flex;height:100vh;width:100vw;background:${bg};color:${text}">
+
+    <!-- Sidebar -->
+    <div style="width:200px;flex-shrink:0;border-right:1px solid ${border};background:${sbBg};display:flex;flex-direction:column">
+      <!-- App title -->
+      <div style="padding:16px 16px 12px;border-bottom:1px solid ${border}">
+        <div style="font-size:14px;font-weight:700;color:${text}">my.h File Finder</div>
+        <div style="font-size:11px;color:${sub};margin-top:2px">v1.3.2</div>
+      </div>
+      <!-- Nav -->
+      <nav style="flex:1;padding:10px 8px;display:flex;flex-direction:column;gap:2px">
+        ${MODES.map(m=>{
+          const active = activeMode===m.id;
+          const abg = active ? (d?`${H.crimson}20`:`${H.crimson}12`) : 'transparent';
+          const atx = active ? H.crimson : sub;
+          const fw = active ? '600' : '500';
+          const badgeBg = active ? `${H.crimson}25` : (d?'#252528':'#e5e2dd');
+          const badgeTx = active ? H.crimson : sub;
+          return `<button onclick="activeMode='${m.id}';render()" style="width:100%;display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:8px;border:none;background:${abg};color:${atx};font-size:13px;font-weight:${fw};text-align:left">
+            <span style="font-size:16px;width:20px;text-align:center">${m.icon}</span>
+            <span style="flex:1">${m.label}</span>
+            <span style="font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px;background:${badgeBg};color:${badgeTx};min-width:20px;text-align:center">${m.count.toLocaleString()}</span>
+          </button>`;
+        }).join('')}
+      </nav>
+      <!-- Footer -->
+      <div style="padding:12px 16px;border-top:1px solid ${border};display:flex;justify-content:space-between;align-items:center">
+        <button onclick="dark=!dark;render()" style="background:none;border:none;font-size:14px;color:${sub};padding:4px">${dark?'☀️ Light Mode':'🌙 Dark Mode'}</button>
+        <span style="font-size:14px;cursor:pointer" title="Help">❓</span>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+
+      <!-- Window title bar -->
+      <div style="height:38px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid ${border};background:${d?'#111':'#f8f5f0'}">
+        <span style="font-size:12px;font-weight:500;color:${sub}">my.h File Tool v1.3.2 — Sensitive / Duplicates / Large / String search</span>
+      </div>
+
+      <!-- Settings row 1: path + scan button -->
+      <div style="padding:12px 20px 8px;display:flex;align-items:center;gap:10px">
+        <label style="font-size:11px;color:${sub};font-weight:600;white-space:nowrap">Scan Path:</label>
+        <input type="text" value="/" style="flex:1;max-width:350px;padding:6px 10px;font-size:13px;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text};outline:none">
+        <button style="padding:6px 14px;font-size:13px;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text}">Browse...</button>
+        <div style="flex:1"></div>
+        <button style="padding:7px 24px;font-size:13px;font-weight:600;background:${H.crimson};color:white;border:none;border-radius:7px;letter-spacing:0.3px;box-shadow:0 1px 3px ${H.crimson}44" title="⌘ Enter">Start Scan</button>
+      </div>
+
+      <!-- Settings row 2: mode-specific -->
+      ${settingsRow2}
+
+      <!-- Progress bar (Harvard crimson) -->
+      <div style="height:2px;background:${d?'#222':'#e5e2dd'}"><div style="height:100%;width:72%;background:linear-gradient(90deg,${H.crimson},${H.crimsonLight});border-radius:1px;transition:width 0.3s"></div></div>
+
+      <!-- Summary strip -->
+      <div style="margin:10px 20px 8px;padding:10px 16px;border-radius:8px;background:${accentBg};border:1px solid ${accentBorder};display:flex;align-items:center;gap:20px">
+        ${summary.stats.map(s=>`<div>
+          <span style="font-size:11px;color:${sub};font-weight:500">${s.l}: </span>
+          <span style="font-size:13px;color:${H.crimson};font-weight:700">${s.v}</span>
+        </div>`).join(`<span style="color:${border}">|</span>`)}
+      </div>
+
+      <!-- Filter bar -->
+      <div style="padding:4px 20px 8px;display:flex;align-items:center;gap:10px">
+        <input type="text" placeholder="Filter by filename or path..." style="flex:1;padding:6px 10px;font-size:13px;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text};outline:none">
+        <label style="font-size:11px;color:${sub};font-weight:500">Show:</label>
+        <select style="padding:5px 8px;font-size:12px;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text}">
+          <option>All Results</option>
+          ${activeMode==='sensitive'?'<option>HIGH Only</option><option>MEDIUM Only</option><option>LOW Only</option><option>HUID Only</option><option>SSN Only</option><option>EMAIL Only</option>':''}
+          ${activeMode==='large'?'<option>Safe to Delete</option><option>Caution</option><option>Keep</option>':''}
+        </select>
+      </div>
+
+      <!-- Table -->
+      <div style="flex:1;overflow:auto;padding:0 20px">
+        ${tableHTML}
+      </div>
+
+      <!-- Bottom action bar -->
+      <div style="height:50px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-top:1px solid ${border};background:${d?'#111':'#f8f5f0'}">
+        <div style="display:flex;align-items:center;gap:12px">
+          <button style="padding:5px 14px;font-size:12px;font-weight:500;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text}">Select All</button>
+          <button style="padding:5px 14px;font-size:12px;font-weight:500;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text}">Deselect All</button>
+          <span style="font-size:12px;color:${sub}">0 files selected (0 B)</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button style="padding:6px 14px;font-size:12px;font-weight:500;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text}">📂 Open</button>
+          <button style="padding:6px 14px;font-size:12px;font-weight:500;background:${inputBg};border:1px solid ${inputBorder};border-radius:6px;color:${text}">🔍 Reveal</button>
+          <button style="padding:6px 16px;font-size:12px;font-weight:600;background:${H.crimson};color:white;border:none;border-radius:6px;box-shadow:0 1px 3px ${H.crimson}44">${activeMode==='sensitive'?'🔒 Secure Delete':'🗑 Delete Selected'}</button>
+        </div>
+      </div>
+
+    </div>
+  </div>`;
+}
+
+render();
+</script>
+</body>
+</html>
