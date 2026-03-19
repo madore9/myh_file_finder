@@ -689,11 +689,19 @@ class SensitiveScannerThread(QThread):
                     break
                 chunk_end = min(chunk_start + CHUNK, total_candidates)
                 chunk_files = candidates[chunk_start:chunk_end]
-                # starmap passes (filepath, profiles) tuples — function resolved from
-                # sensitive_scanner module (no PyQt5), not large_file_finder module
+                # starmap_async + poll so we can check _stop_requested while waiting
                 args = [(fp, _profiles) for fp in chunk_files]
                 try:
-                    chunk_results = pool.starmap(sensitive_scan_file, args)
+                    async_result = pool.starmap_async(sensitive_scan_file, args)
+                    while not async_result.ready():
+                        if self._stop_requested:
+                            pool.terminate()
+                            pool.join()
+                            break
+                        async_result.wait(timeout=0.5)
+                    if self._stop_requested:
+                        break
+                    chunk_results = async_result.get()
                 except Exception:
                     chunk_results = [[] for _ in chunk_files]
                 for results in chunk_results:
