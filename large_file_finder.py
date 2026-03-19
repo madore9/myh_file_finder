@@ -662,56 +662,34 @@ class SensitiveScannerThread(QThread):
             self.scan_finished.emit(0)
             return
 
-        # Phase 2: scan files in parallel across CPU cores
-        # IMPORTANT: Use sensitive_scan_file directly (from sensitive_scanner.py)
-        # NOT a wrapper in this file. Workers pickle the function by module+name.
-        # sensitive_scanner.py has zero PyQt5 imports = lightweight worker processes.
-        # A wrapper in large_file_finder.py would force workers to import PyQt5 = broken/slow.
-        from multiprocessing import Pool
-
-        num_workers = max(1, (os.cpu_count() or 4) - 1)  # leave 1 core for UI
+        # Phase 2: scan files (single-threaded — multiprocessing has too much
+        # overhead in py2app bundles). Speed comes from scan_file() optimizations:
+        # - Read only first 64KB (not full 10MB files)
+        # - Skip digit-based patterns if no digits in content
+        # - Early context keyword exit
         total_candidates = len(candidates)
-        CHUNK = 50  # files per starmap call to each worker
         _profiles = list(self.active_profiles)
 
         self.scan_progress.emit(
-            f"Scanning {total_candidates:,} files across {num_workers} cores…",
+            f"Scanning {total_candidates:,} candidate files…",
             total_candidates, 0,
         )
 
         try:
-            pool = Pool(processes=num_workers)
-            # Process in explicit chunk batches so we can check _stop_requested between each
-            for chunk_start in range(0, total_candidates, CHUNK):
+            for i, filepath in enumerate(candidates):
                 if self._stop_requested:
-                    pool.terminate()
-                    pool.join()
                     break
-                chunk_end = min(chunk_start + CHUNK, total_candidates)
-                chunk_files = candidates[chunk_start:chunk_end]
-                # starmap_async + poll so we can check _stop_requested while waiting
-                args = [(fp, _profiles) for fp in chunk_files]
                 try:
-                    async_result = pool.starmap_async(sensitive_scan_file, args)
-                    while not async_result.ready():
-                        if self._stop_requested:
-                            pool.terminate()
-                            pool.join()
-                            break
-                        async_result.wait(timeout=0.5)
-                    if self._stop_requested:
-                        break
-                    chunk_results = async_result.get()
+                    file_results = sensitive_scan_file(filepath, _profiles)
                 except Exception:
-                    chunk_results = [[] for _ in chunk_files]
-                for results in chunk_results:
-                    files_scanned += 1
-                    for r in results:
-                        total_findings += 1
-                        batch.append(r)
-                        if len(batch) >= SENSITIVE_FINDING_BATCH_SIZE:
-                            self.finding_batch_ready.emit(batch)
-                            batch = []
+                    file_results = []
+                files_scanned += 1
+                for r in file_results:
+                    total_findings += 1
+                    batch.append(r)
+                    if len(batch) >= SENSITIVE_FINDING_BATCH_SIZE:
+                        self.finding_batch_ready.emit(batch)
+                        batch = []
                 # Progress (throttled)
                 now = time.monotonic()
                 if now - last_progress_time >= 0.25:
@@ -720,10 +698,6 @@ class SensitiveScannerThread(QThread):
                         files_scanned, total_findings,
                     )
                     last_progress_time = now
-            else:
-                # Normal completion (no break)
-                pool.close()
-                pool.join()
 
             if batch:
                 self.finding_batch_ready.emit(batch)
@@ -731,11 +705,6 @@ class SensitiveScannerThread(QThread):
             self.scan_error.emit(str(e))
             if batch:
                 self.finding_batch_ready.emit(batch)
-            try:
-                pool.terminate()
-                pool.join()
-            except Exception:
-                pass
         self.scan_finished.emit(total_findings)
 
 

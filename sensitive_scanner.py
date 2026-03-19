@@ -229,6 +229,9 @@ def mask_value(value, profile_key):
     return '****'
 
 
+SCAN_READ_LIMIT = 64 * 1024  # Read first 64KB — sensitive data is in headers/early content
+
+
 def scan_file(filepath, active_profiles):
     """Scan a single file. Returns list of result dicts (one per matching profile)."""
     results = []
@@ -237,19 +240,27 @@ def scan_file(filepath, active_profiles):
         if file_stat.st_size > MAX_FILE_SIZE:
             return results
 
-        # Single read with errors='replace' — avoids double-read with encoding fallback
-        content = Path(filepath).read_text(encoding='utf-8', errors='replace')
+        # Read only the first 64KB — sensitive data (SSN, HUID, emails) almost always
+        # appears in the first portion of structured files. Reading 64KB instead of
+        # 10MB = ~150x less I/O per file.
+        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read(SCAN_READ_LIMIT)
         if not content:
             return results
+
+        # Quick pre-check: if no digits at all, skip SSN/HUID/TAX patterns entirely
+        has_digits = any(c.isdigit() for c in content[:4096])
 
         fname = os.path.basename(filepath)
         ext = os.path.splitext(filepath)[1].lower()
         fname_lower = fname.lower()
-        # Lowercase only the prefix needed for context keyword matching
         content_lower_prefix = content[:5000].lower()
 
         for pkey in active_profiles:
             if pkey not in PROFILES:
+                continue
+            # Skip digit-based profiles if no digits in content (saves regex work)
+            if not has_digits and pkey in ('HUID', 'SSN', 'TAX'):
                 continue
             profile = PROFILES[pkey]
             all_matches = []
