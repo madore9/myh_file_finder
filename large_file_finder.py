@@ -588,11 +588,6 @@ class DuplicateScannerThread(QThread):
 SENSITIVE_FINDING_BATCH_SIZE = 200  # Emit findings in batches to avoid 10k+ main-thread slot invocations
 
 
-def _sensitive_scan_worker(filepath, profiles):
-    """Top-level wrapper for multiprocessing — must be picklable (not a method)."""
-    return sensitive_scan_file(filepath, profiles)
-
-
 class SensitiveScannerThread(QThread):
     """Scan directory for files containing sensitive data (HUID, SSN, TAX, EMAIL)."""
     finding_batch_ready = pyqtSignal(list)  # batch of finding dicts (avoids flooding main thread)
@@ -668,24 +663,21 @@ class SensitiveScannerThread(QThread):
             return
 
         # Phase 2: scan files in parallel across CPU cores
-        # Use multiprocessing.Pool.imap_unordered with chunksize for minimal IPC overhead.
-        # ProcessPoolExecutor submits one-at-a-time (high overhead per file).
-        # imap_unordered sends CHUNKS of files to each worker (50 files per IPC call).
+        # IMPORTANT: Use sensitive_scan_file directly (from sensitive_scanner.py)
+        # NOT a wrapper in this file. Workers pickle the function by module+name.
+        # sensitive_scanner.py has zero PyQt5 imports = lightweight worker processes.
+        # A wrapper in large_file_finder.py would force workers to import PyQt5 = broken/slow.
         from multiprocessing import Pool
-        from functools import partial
 
         num_workers = max(1, (os.cpu_count() or 4) - 1)  # leave 1 core for UI
         total_candidates = len(candidates)
-        CHUNK = 50  # files per IPC call to each worker
+        CHUNK = 50  # files per starmap call to each worker
+        _profiles = list(self.active_profiles)
 
         self.scan_progress.emit(
             f"Scanning {total_candidates:,} files across {num_workers} cores…",
             total_candidates, 0,
         )
-
-        # _scan_worker must be a top-level function for pickling (defined below class)
-        _profiles = list(self.active_profiles)  # copy for safety
-        scan_one = partial(_sensitive_scan_worker, profiles=_profiles)
 
         try:
             pool = Pool(processes=num_workers)
@@ -697,9 +689,11 @@ class SensitiveScannerThread(QThread):
                     break
                 chunk_end = min(chunk_start + CHUNK, total_candidates)
                 chunk_files = candidates[chunk_start:chunk_end]
-                # map() blocks until this chunk is done (~1-2 sec per chunk)
+                # starmap passes (filepath, profiles) tuples — function resolved from
+                # sensitive_scanner module (no PyQt5), not large_file_finder module
+                args = [(fp, _profiles) for fp in chunk_files]
                 try:
-                    chunk_results = pool.map(scan_one, chunk_files)
+                    chunk_results = pool.starmap(sensitive_scan_file, args)
                 except Exception:
                     chunk_results = [[] for _ in chunk_files]
                 for results in chunk_results:

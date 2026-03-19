@@ -110,6 +110,29 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 echo "  ✓ ${APP_NAME}.app built"
 
+# ── Step 3b: Code sign ───────────────────────────────────
+# Set CODESIGN_IDENTITY to sign the app. Options:
+#   - Harvard enterprise cert: "Developer ID Application: President and Fellows of Harvard College (XXXXXXXXXX)"
+#   - Self-signed (local dev): "myh-file-finder"  (create in Keychain Access first)
+#   - Ad-hoc (no cert needed):  "-"
+#   - Skip signing:             leave empty
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+
+if [ -n "$CODESIGN_IDENTITY" ]; then
+    echo ""
+    echo "▶ [3b] Code signing with: ${CODESIGN_IDENTITY}..."
+    codesign --force --deep -s "$CODESIGN_IDENTITY" "$APP_PATH" 2>&1
+    if [ $? -eq 0 ]; then
+        echo "  ✓ Signed"
+    else
+        echo "  ⚠ Signing failed — continuing without signature"
+    fi
+else
+    echo ""
+    echo "  ⚠ No CODESIGN_IDENTITY set — app will be unsigned"
+    echo "    To sign: export CODESIGN_IDENTITY='Your Certificate Name'"
+fi
+
 # ── Step 4: Create DMG staging area ──────────────────────
 echo ""
 echo "▶ [4/6] Staging DMG contents..."
