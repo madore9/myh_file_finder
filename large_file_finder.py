@@ -1166,16 +1166,11 @@ class MyhFileFinder(QMainWindow):
         sens_row1 = QHBoxLayout()
         sens_row1.addWidget(QLabel("Profiles:"))
         self.profile_checks = {}
-        for key in ("HUID", "SSN", "TAX", "EMAIL"):
+        for key in ("HUID", "SSN", "EMAIL"):
             if key not in SENSITIVE_PROFILES:
                 continue
             cb = QCheckBox(key)
-            if key == "TAX":
-                cb.setChecked(False)
-                cb.setEnabled(False)
-                cb.setToolTip("TAX ID scanning is temporarily disabled")
-            else:
-                cb.setChecked(True)
+            cb.setChecked(True)
             self.profile_checks[key] = cb
             sens_row1.addWidget(cb)
         sens_row1.addStretch()
@@ -1263,7 +1258,7 @@ class MyhFileFinder(QMainWindow):
         self.sensitive_show_filter = QComboBox()
         self.sensitive_show_filter.addItems([
             "All Results", "HIGH Only", "MEDIUM Only", "LOW Only",
-            "HUID Only", "SSN Only", "TAX Only", "EMAIL Only"
+            "HUID Only", "SSN Only", "EMAIL Only"
         ])
         self.sensitive_show_filter.currentIndexChanged.connect(self._apply_table_filter)
         filter_layout.addWidget(self.sensitive_show_label)
@@ -1415,7 +1410,7 @@ class MyhFileFinder(QMainWindow):
         self.table.setColumnWidth(1, 85)
         self.table.setColumnWidth(2, 45)
         self.table.setColumnWidth(3, 45)
-        self.table.setColumnWidth(4, 45)
+        self.table.setColumnHidden(4, True)  # TAX column — hidden until enabled
         self.table.setColumnWidth(5, 50)
         self.table.setColumnWidth(6, 180)
         self.table.setColumnWidth(7, 280)
@@ -1789,7 +1784,7 @@ class MyhFileFinder(QMainWindow):
         elif self._scan_mode == "sensitive":
             active = [k for k, cb in self.profile_checks.items() if cb.isChecked()]
             if not active:
-                QMessageBox.warning(self, "No Profiles", "Select at least one scan profile (HUID, SSN, TAX, EMAIL).")
+                QMessageBox.warning(self, "No Profiles", "Select at least one scan profile (HUID, SSN, EMAIL).")
                 return
             excluded_dirs = list(self.excluded_dirs_list)
             bundle_root = get_app_bundle_root()
