@@ -688,11 +688,21 @@ class SensitiveScannerThread(QThread):
         scan_one = partial(_sensitive_scan_worker, profiles=_profiles)
 
         try:
-            with Pool(processes=num_workers) as pool:
-                for results in pool.imap_unordered(scan_one, candidates, chunksize=CHUNK):
-                    if self._stop_requested:
-                        pool.terminate()
-                        break
+            pool = Pool(processes=num_workers)
+            # Process in explicit chunk batches so we can check _stop_requested between each
+            for chunk_start in range(0, total_candidates, CHUNK):
+                if self._stop_requested:
+                    pool.terminate()
+                    pool.join()
+                    break
+                chunk_end = min(chunk_start + CHUNK, total_candidates)
+                chunk_files = candidates[chunk_start:chunk_end]
+                # map() blocks until this chunk is done (~1-2 sec per chunk)
+                try:
+                    chunk_results = pool.map(scan_one, chunk_files)
+                except Exception:
+                    chunk_results = [[] for _ in chunk_files]
+                for results in chunk_results:
                     files_scanned += 1
                     for r in results:
                         total_findings += 1
@@ -700,14 +710,18 @@ class SensitiveScannerThread(QThread):
                         if len(batch) >= SENSITIVE_FINDING_BATCH_SIZE:
                             self.finding_batch_ready.emit(batch)
                             batch = []
-                    # Progress (throttled)
-                    now = time.monotonic()
-                    if now - last_progress_time >= 0.25:
-                        self.scan_progress.emit(
-                            f"Scanning ({files_scanned:,}/{total_candidates:,})…",
-                            files_scanned, total_findings,
-                        )
-                        last_progress_time = now
+                # Progress (throttled)
+                now = time.monotonic()
+                if now - last_progress_time >= 0.25:
+                    self.scan_progress.emit(
+                        f"Scanning ({files_scanned:,}/{total_candidates:,})…",
+                        files_scanned, total_findings,
+                    )
+                    last_progress_time = now
+            else:
+                # Normal completion (no break)
+                pool.close()
+                pool.join()
 
             if batch:
                 self.finding_batch_ready.emit(batch)
@@ -715,6 +729,11 @@ class SensitiveScannerThread(QThread):
             self.scan_error.emit(str(e))
             if batch:
                 self.finding_batch_ready.emit(batch)
+            try:
+                pool.terminate()
+                pool.join()
+            except Exception:
+                pass
         self.scan_finished.emit(total_findings)
 
 
