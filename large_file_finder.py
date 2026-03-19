@@ -1179,6 +1179,14 @@ class MyhFileFinder(QMainWindow):
             self.profile_checks[key] = cb
             sens_row1.addWidget(cb)
         sens_row1.addStretch()
+        self.skip_app_system_check = QCheckBox("Skip app & system data")
+        self.skip_app_system_check.setChecked(True)
+        self.skip_app_system_check.setToolTip(
+            "Skip browser profiles, app caches, Library internals, and other\n"
+            "app-managed directories that produce false positives.\n"
+            "Recommended ON for most scans."
+        )
+        sens_row1.addWidget(self.skip_app_system_check)
         sens_layout.addLayout(sens_row1)
         sens_row2 = QHBoxLayout()
         sens_row2.addWidget(QLabel("Exclude folders:"))
@@ -1776,6 +1784,10 @@ class MyhFileFinder(QMainWindow):
                     excluded_dirs.append(os.path.realpath(bundle_root))
                 except OSError:
                     excluded_dirs.append(bundle_root)
+            # Add app/system data directories when checkbox is enabled
+            if self.skip_app_system_check.isChecked():
+                from scan_utils import get_app_system_skip_dirs
+                excluded_dirs.extend(get_app_system_skip_dirs())
             self.scanner_thread = SensitiveScannerThread(
                 scan_path=scan_path,
                 active_profiles=active,

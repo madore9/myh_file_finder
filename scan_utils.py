@@ -75,6 +75,64 @@ SKIP_VOLUME_PREFIXES_MAC = (
     "/Volumes/com.apple.TimeMachine",
 )
 
+# ~/Library subdirectories containing app-internal data (not user files).
+# Used by "Skip app & system data" checkbox. These produce massive false
+# positives in sensitive scans (Firefox profiles, Chrome data, Mail, etc.)
+def get_app_system_skip_dirs():
+    """Return a set of absolute paths to skip when 'Skip app & system data' is enabled."""
+    home = os.path.expanduser("~")
+    lib = os.path.join(home, "Library")
+    return {
+        # Browser data (Firefox, Chrome, Safari, Edge, Brave, Arc)
+        os.path.join(lib, "Application Support", "Firefox"),
+        os.path.join(lib, "Application Support", "Google"),
+        os.path.join(lib, "Application Support", "BraveSoftware"),
+        os.path.join(lib, "Application Support", "Arc"),
+        os.path.join(lib, "Application Support", "Microsoft Edge"),
+        os.path.join(lib, "Safari"),
+        os.path.join(lib, "WebKit"),
+        os.path.join(lib, "Cookies"),
+        # Communication apps
+        os.path.join(lib, "Application Support", "Slack"),
+        os.path.join(lib, "Application Support", "zoom.us"),
+        os.path.join(lib, "Application Support", "Microsoft", "Teams"),
+        os.path.join(lib, "Messages"),
+        os.path.join(lib, "Mail"),
+        # App internals
+        os.path.join(lib, "Containers"),
+        os.path.join(lib, "Group Containers"),
+        os.path.join(lib, "Saved Application State"),
+        os.path.join(lib, "Logs"),
+        os.path.join(lib, "Preferences"),
+        os.path.join(lib, "Accounts"),
+        os.path.join(lib, "Keychains"),
+        os.path.join(lib, "Metadata"),
+        os.path.join(lib, "HTTPStorages"),
+        # Development tools
+        os.path.join(lib, "Developer"),
+        os.path.join(lib, "Application Support", "Code"),  # VS Code
+        os.path.join(lib, "Application Support", "Cursor"),
+        os.path.join(lib, "Application Support", "JetBrains"),
+        # Cloud sync internals
+        os.path.join(lib, "Application Support", "CloudDocs"),
+        os.path.join(lib, "Mobile Documents"),  # iCloud Drive internals
+        # System
+        os.path.join(lib, "Caches"),
+        os.path.join(lib, "LaunchAgents"),
+        os.path.join(lib, "Fonts"),
+        os.path.join(lib, "ColorSync"),
+        os.path.join(lib, "Input Methods"),
+        # Other common app data dirs in home
+        os.path.join(home, ".docker"),
+        os.path.join(home, ".npm"),
+        os.path.join(home, ".local"),
+        os.path.join(home, ".cache"),
+        os.path.join(home, ".config"),
+        os.path.join(home, ".ssh"),
+        os.path.join(home, ".gnupg"),
+        os.path.join(home, ".ollama"),
+    }
+
 
 def should_skip_dir(
     dirname: str,
