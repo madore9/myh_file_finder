@@ -1505,6 +1505,20 @@ class MyhFileFinder(QMainWindow):
         except OSError:
             pass
 
+    def _exclude_directory_from_menu(self, dirpath: str):
+        """Add a directory to the exclude list from the right-click context menu."""
+        try:
+            normalized = os.path.realpath(dirpath)
+            if normalized not in self.excluded_dirs_list:
+                self.excluded_dirs_list.append(normalized)
+                if save_excluded_dirs:
+                    save_excluded_dirs(self.excluded_dirs_list)
+                self._refresh_excluded_list()
+                short = dirpath.replace(str(Path.home()), "~") if dirpath.startswith(str(Path.home())) else dirpath
+                self.status_label.setText(f"Excluded: {short}")
+        except OSError:
+            pass
+
     def _remove_excluded_folder(self):
         row = self.excluded_list.currentRow()
         if row < 0:
@@ -2497,6 +2511,14 @@ class MyhFileFinder(QMainWindow):
                           lambda: self._reveal_in_finder(filepath))
             if self._scan_mode == "string_search":
                 menu.addAction("Open file", lambda: self._open_file_default(filepath))
+            # "Exclude this directory" — adds parent dir to the exclude list
+            dirpath = os.path.dirname(filepath)
+            if dirpath:
+                short = dirpath.replace(str(Path.home()), "~") if dirpath.startswith(str(Path.home())) else dirpath
+                if len(short) > 50:
+                    short = "…" + short[-47:]
+                menu.addSeparator()
+                menu.addAction(f"Exclude folder: {short}", lambda d=dirpath: self._exclude_directory_from_menu(d))
         if menu.actions():
             menu.exec_(self.table.mapToGlobal(pos))
 

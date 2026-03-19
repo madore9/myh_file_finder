@@ -116,13 +116,36 @@ def get_app_system_skip_dirs():
         # Cloud sync internals
         os.path.join(lib, "Application Support", "CloudDocs"),
         os.path.join(lib, "Mobile Documents"),  # iCloud Drive internals
+        os.path.join(lib, "Application Support", "iCloud"),
+        # Apple app data
+        os.path.join(lib, "Application Support", "AddressBook"),
+        os.path.join(lib, "Application Support", "CallHistoryDB"),
+        os.path.join(lib, "Calendars"),
+        os.path.join(lib, "HomeKit"),
+        os.path.join(lib, "Suggestions"),
+        os.path.join(lib, "IdentityServices"),
+        os.path.join(lib, "Assistant"),  # Siri
+        os.path.join(lib, "Sharing"),
+        # More apps
+        os.path.join(lib, "Application Support", "Spotify"),
+        os.path.join(lib, "Application Support", "Discord"),
+        os.path.join(lib, "Application Support", "1Password"),
+        os.path.join(lib, "Application Support", "com.apple.sharedfilelist"),
+        os.path.join(lib, "Application Support", "CrashReporter"),
+        os.path.join(lib, "Application Support", "Adobe"),
+        os.path.join(lib, "Application Support", "Dropbox"),
+        os.path.join(lib, "Application Support", "OneDrive"),
+        os.path.join(lib, "Application Support", "Box"),
         # System
         os.path.join(lib, "Caches"),
         os.path.join(lib, "LaunchAgents"),
         os.path.join(lib, "Fonts"),
         os.path.join(lib, "ColorSync"),
         os.path.join(lib, "Input Methods"),
-        # Other common app data dirs in home
+        os.path.join(lib, "Spelling"),
+        os.path.join(lib, "Sounds"),
+        os.path.join(lib, "Screen Savers"),
+        # Other common app/dev data dirs in home
         os.path.join(home, ".docker"),
         os.path.join(home, ".npm"),
         os.path.join(home, ".local"),
@@ -131,6 +154,14 @@ def get_app_system_skip_dirs():
         os.path.join(home, ".ssh"),
         os.path.join(home, ".gnupg"),
         os.path.join(home, ".ollama"),
+        os.path.join(home, ".rustup"),
+        os.path.join(home, ".cargo"),
+        os.path.join(home, ".gradle"),
+        os.path.join(home, ".m2"),
+        os.path.join(home, ".bun"),
+        os.path.join(home, ".pyenv"),
+        os.path.join(home, ".rbenv"),
+        os.path.join(home, ".nvm"),
     }
 
 
